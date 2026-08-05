@@ -1,0 +1,10 @@
+.git
+/bin/
+/deployments/
+.env
+*.log
+compose.yaml
+Dockerfile
+.dockerignore
+README.md
+LICENSE

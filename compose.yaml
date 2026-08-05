@@ -1,0 +1,36 @@
+# Local development stack: real PostgreSQL with schema + deterministic seed
+# applied once on first start (docker-entrypoint-initdb.d runs lexically on
+# an empty data volume), plus the API built from source.
+# Credentials below are local-development-only values.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: order_engine
+      POSTGRES_PASSWORD: local-dev-password
+      POSTGRES_DB: order_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./migrations/000001_init.up.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./scripts/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U order_engine -d order_engine"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build: .
+    ports:
+      - "50051:50051"
+    environment:
+      ORDER_ENGINE_DATABASE_URL: postgres://order_engine:local-dev-password@postgres:5432/order_engine?sslmode=disable
+      ORDER_ENGINE_TRACING_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
