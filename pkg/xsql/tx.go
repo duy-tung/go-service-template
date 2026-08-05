@@ -42,6 +42,12 @@ func ExecInTx(ctx context.Context, db *sql.DB, fn func(context.Context) error) e
 	if fn == nil {
 		return errors.New("xsql: ExecInTx requires a non-nil fn")
 	}
+	// Fail fast before touching the pool or running fn: a request whose
+	// context is already dead should not consume a connection (or join an
+	// existing transaction) just to fail on its first operation.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("xsql: context done before transaction work: %w", err)
+	}
 	if _, ok := ctx.Value(txKey{db: db}).(*sql.Tx); ok {
 		return fn(ctx)
 	}

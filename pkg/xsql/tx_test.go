@@ -232,10 +232,35 @@ func TestExecInTxCanceledContextFailsBegin(t *testing.T) {
 	cancel()
 
 	err := ExecInTx(ctx, db, func(context.Context) error {
-		t.Error("fn must not run when Begin fails")
+		t.Error("fn must not run when the context is already dead")
 		return nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("ExecInTx error = %v, want unwrappable to context.Canceled", err)
 	}
+}
+
+// TestExecInTxCanceledContextSkipsJoinedWork covers the join-existing path:
+// even with a live transaction in the context, a dead request context must
+// fail fast instead of running fn.
+func TestExecInTxCanceledContextSkipsJoinedWork(t *testing.T) {
+	db, mock := newMockDB(t)
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	outerErr := ExecInTx(context.Background(), db, func(txCtx context.Context) error {
+		canceled, cancel := context.WithCancel(txCtx)
+		cancel()
+		if err := ExecInTx(canceled, db, func(context.Context) error {
+			t.Error("joined fn must not run when the context is already dead")
+			return nil
+		}); !errors.Is(err, context.Canceled) {
+			t.Errorf("joined ExecInTx error = %v, want unwrappable to context.Canceled", err)
+		}
+		return errors.New("roll the outer transaction back")
+	})
+	if outerErr == nil {
+		t.Fatal("outer ExecInTx must propagate the callback error")
+	}
+	expectationsMet(t, mock)
 }
