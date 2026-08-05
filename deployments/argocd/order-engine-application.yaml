@@ -1,0 +1,54 @@
+# The order-engine workload. Git holds only immutable image references
+# (helm.parameters image.digest); Argo CD never builds images.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: order-engine
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: order-engine
+  source:
+    repoURL: https://github.com/acme/order-engine.git # replace with your fork
+    targetRevision: main
+    path: deployments/helm/order-engine
+    helm:
+      parameters:
+        - name: routing.mode
+          value: grpc
+        - name: routing.hostname
+          value: orders.example.com # replace
+        - name: image.digest
+          value: "" # pin the released digest, e.g. sha256:...
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: order-engine
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    # The shared Gateway only admits Routes from namespaces labeled
+    # gateway-access=true; Argo owns the namespace, so it applies the label.
+    managedNamespaceMetadata:
+      labels:
+        gateway-access: "true"
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - FailOnSharedResource=true
+      - RespectIgnoreDifferences=true
+  # With autoscaling.enabled the chart already omits spec.replicas; this
+  # ignore keeps Argo quiet about HPA-driven scaling either way.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

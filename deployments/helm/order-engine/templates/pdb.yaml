@@ -1,0 +1,15 @@
+{{- /* A PDB with fewer than 2 possible replicas would block every drain. */ -}}
+{{- $canDisrupt := or .Values.autoscaling.enabled (ge (int .Values.replicaCount) 2) -}}
+{{- if and .Values.pdb.enabled $canDisrupt }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "order-engine.fullname" . }}
+  labels:
+    {{- include "order-engine.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "order-engine.selectorLabels" . | nindent 6 }}
+{{- end }}

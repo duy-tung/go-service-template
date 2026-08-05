@@ -1,0 +1,29 @@
+{{- include "order-engine.validateRouting" . -}}
+{{- if eq .Values.routing.mode "http" }}
+# Connect protocol / gRPC-Web (or mixed HTTP + gRPC on one hostname)
+# through the Gateway. Renders only in http mode, so this hostname is never
+# claimed by both Route kinds.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "order-engine.fullname" . }}
+  labels:
+    {{- include "order-engine.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.routing.gateway.name }}
+      namespace: {{ .Values.routing.gateway.namespace }}
+      {{- with .Values.routing.gateway.sectionName }}
+      sectionName: {{ . }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.routing.hostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "order-engine.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

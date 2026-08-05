@@ -1,0 +1,38 @@
+# Shared edge Gateway. Prerequisites (install before this manifest):
+#   - Gateway API Standard Channel CRDs (gateway.networking.k8s.io/v1)
+#   - A Gateway controller with GRPCRoute conformance (e.g. Envoy Gateway,
+#     Cilium, Istio); set spec.gatewayClassName to the class it provides.
+#     No GatewayClass is created here on purpose.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shared-gateway
+  namespace: gateway-infra
+spec:
+  # Replace with your controller's GatewayClass name.
+  gatewayClassName: envoy-gateway
+  listeners:
+    # Cleartext listener for ACME HTTP-01 challenges. cert-manager creates
+    # its solver HTTPRoutes in this namespace, so Same is sufficient.
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    # TLS terminates here; upstream traffic to Pods is h2c (edge TLS, not
+    # end-to-end TLS).
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: order-engine-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              gateway-access: "true"

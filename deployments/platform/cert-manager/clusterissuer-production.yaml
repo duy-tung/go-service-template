@@ -1,0 +1,20 @@
+# Let's Encrypt PRODUCTION issuer: trusted certificates, strict rate
+# limits. Point Certificates here only after staging validation passes.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-production
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: platform@example.com # replace: expiry notices go here
+    privateKeySecretRef:
+      name: letsencrypt-production-account-key
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - kind: Gateway
+                name: shared-gateway
+                namespace: gateway-infra
+                sectionName: http

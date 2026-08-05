@@ -1,0 +1,109 @@
+image:
+  repository: ghcr.io/acme/order-engine
+  # Production values must set an immutable digest (sha256:...). The tag is
+  # a development fallback used only when digest is empty.
+  digest: ""
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+# Used when autoscaling.enabled=false. Keep at least 2 for availability.
+replicaCount: 2
+
+serviceAccount:
+  create: true
+  name: ""
+
+deployment:
+  minReadySeconds: 5
+  progressDeadlineSeconds: 300
+  terminationGracePeriodSeconds: 30
+  revisionHistoryLimit: 5
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 75
+
+pdb:
+  # Rendered only when the workload can actually have >= 2 replicas.
+  enabled: true
+  maxUnavailable: 1
+
+# Spread across zones and nodes; ScheduleAnyway keeps small clusters usable.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+
+service:
+  port: 50051
+
+database:
+  # Name of an existing Secret holding the DSN; this chart never stores
+  # database credentials in plaintext.
+  existingSecret: order-engine-db
+  secretKey: database-url
+
+auth:
+  # Optional existing Secret carrying the bearer token for the built-in
+  # static validator (dev/test only — see README trust model). When empty
+  # the application default applies.
+  existingSecret: ""
+  secretKey: token
+
+otel:
+  tracingEnabled: true
+  # e.g. http://otel-collector.observability.svc.cluster.local:4317
+  exporterEndpoint: ""
+
+routing:
+  # grpc: render a GRPCRoute only (native gRPC through the Gateway).
+  # http: render an HTTPRoute only (Connect protocol / gRPC-Web).
+  # Exactly one Route kind renders; hostnames never overlap between kinds.
+  mode: grpc
+  hostname: orders.example.invalid
+  gateway:
+    name: shared-gateway
+    namespace: gateway-infra
+    sectionName: https
+
+networkPolicy:
+  enabled: true
+  # Namespace that runs the Gateway data plane (ingress source).
+  gatewayNamespace: gateway-infra
+  # Extra NetworkPolicyPeer entries allowed to reach :50051 (in-cluster
+  # native gRPC clients using the headless Service).
+  extraIngressFrom: []
+  egress:
+    # NetworkPolicyPeer list for PostgreSQL.
+    postgres:
+      port: 5432
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+    # NetworkPolicyPeer list for the OTel collector.
+    otel:
+      port: 4317
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,21 @@
+# Headless Service: DNS returns one A/AAAA record per ready Pod, which is
+# what lets native grpc-go clients (and the order_random picker) see and
+# balance across individual backends. Not-ready Pods are deliberately not
+# published.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "order-engine.fullname" . }}-headless
+  labels:
+    {{- include "order-engine.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "order-engine.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.service.port }}
+      targetPort: 50051
+      protocol: TCP
+      appProtocol: kubernetes.io/h2c

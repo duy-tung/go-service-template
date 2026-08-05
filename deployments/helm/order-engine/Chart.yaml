@@ -1,0 +1,7 @@
+apiVersion: v2
+name: order-engine
+description: Order-processing microservice serving Connect, gRPC and gRPC-Web over h2c
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.34.0-0"

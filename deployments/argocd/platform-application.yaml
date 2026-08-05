@@ -1,0 +1,38 @@
+# Shared platform pieces: Gateway, ClusterIssuers, Certificate.
+#
+# Sync ordering across the estate: Gateway API CRDs + controller and
+# cert-manager itself are installed by their own upstream charts/apps BEFORE
+# this Application (sync-wave -1 here, the app at wave 0). Prune is
+# deliberately conservative: losing a shared Gateway or ClusterIssuer takes
+# down every dependent workload, so removals are applied manually.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: order-engine-platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: order-engine
+  source:
+    repoURL: https://github.com/acme/order-engine.git # replace with your fork
+    targetRevision: main
+    path: deployments/platform
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gateway-infra
+  syncPolicy:
+    automated:
+      prune: false # conservative for shared/cluster-scoped resources
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - FailOnSharedResource=true

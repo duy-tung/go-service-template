@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "order-engine.fullname" . }}
+  labels:
+    {{- include "order-engine.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.deployment.revisionHistoryLimit }}
+  minReadySeconds: {{ .Values.deployment.minReadySeconds }}
+  progressDeadlineSeconds: {{ .Values.deployment.progressDeadlineSeconds }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "order-engine.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "order-engine.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "order-engine.serviceAccountName" . }}
+      # The app never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.deployment.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range . }}
+        - {{- toYaml . | nindent 10 }}
+          labelSelector:
+            matchLabels:
+              {{- include "order-engine.selectorLabels" $ | nindent 14 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: order-engine
+          image: {{ include "order-engine.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+          env:
+            - name: ORDER_ENGINE_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.secretKey }}
+            {{- if .Values.auth.existingSecret }}
+            - name: ORDER_ENGINE_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: {{ .Values.auth.secretKey }}
+            {{- end }}
+            - name: ORDER_ENGINE_TRACING_ENABLED
+              value: {{ .Values.otel.tracingEnabled | quote }}
+            {{- if .Values.otel.exporterEndpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.exporterEndpoint | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          # Native gRPC probes (numeric port by design: named ports are not
+          # supported for gRPC probes).
+          startupProbe:
+            grpc:
+              port: 50051
+              service: liveness
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            grpc:
+              port: 50051
+              service: liveness
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            grpc:
+              port: 50051
+              service: readiness
+            periodSeconds: 5
+            failureThreshold: 2

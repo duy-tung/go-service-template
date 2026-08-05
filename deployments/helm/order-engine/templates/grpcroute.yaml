@@ -1,0 +1,24 @@
+{{- include "order-engine.validateRouting" . -}}
+{{- if eq .Values.routing.mode "grpc" }}
+# Native gRPC through the Gateway. Renders only in grpc mode, so this
+# hostname is never claimed by both Route kinds.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: {{ include "order-engine.fullname" . }}
+  labels:
+    {{- include "order-engine.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.routing.gateway.name }}
+      namespace: {{ .Values.routing.gateway.namespace }}
+      {{- with .Values.routing.gateway.sectionName }}
+      sectionName: {{ . }}
+      {{- end }}
+  hostnames:
+    - {{ .Values.routing.hostname | quote }}
+  rules:
+    - backendRefs:
+        - name: {{ include "order-engine.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

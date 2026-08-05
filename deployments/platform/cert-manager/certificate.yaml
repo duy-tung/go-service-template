@@ -1,0 +1,19 @@
+# Explicit Certificate in the Gateway's namespace: the HTTPS listener
+# references the resulting Secret (order-engine-tls) directly.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: order-engine
+  namespace: gateway-infra
+spec:
+  secretName: order-engine-tls
+  issuerRef:
+    kind: ClusterIssuer
+    # Switch to letsencrypt-production after validating with staging.
+    name: letsencrypt-staging
+  dnsNames:
+    - orders.example.com # replace with routing.hostname
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always

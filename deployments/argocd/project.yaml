@@ -1,0 +1,42 @@
+# Dedicated AppProject: never use "default". Allowlists pin the repo, the
+# destinations, and exactly the resource kinds these Applications manage.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: order-engine
+  namespace: argocd
+spec:
+  description: order-engine service and its shared platform pieces
+  sourceRepos:
+    - https://github.com/acme/order-engine.git # replace with your fork
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: order-engine
+    - server: https://kubernetes.default.svc
+      namespace: gateway-infra
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: cert-manager.io
+      kind: ClusterIssuer
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+    - group: gateway.networking.k8s.io
+      kind: GRPCRoute
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    - group: cert-manager.io
+      kind: Certificate

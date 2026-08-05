@@ -1,0 +1,29 @@
+# Let's Encrypt STAGING issuer: untrusted certificates, generous rate
+# limits. Always validate here before switching workloads to production.
+#
+# Prerequisites:
+#   - cert-manager installed with Gateway API support enabled
+#     (config.enableGatewayAPI: true / --enable-gateway-api), and the
+#     Gateway API CRDs installed BEFORE cert-manager starts.
+#   - Public DNS for challenge hostnames pointing at the Gateway address.
+#   - Wildcard certificates cannot use HTTP-01; use a DNS-01 solver instead.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: platform@example.com # replace: expiry notices go here
+    # cert-manager generates and stores the ACME account key in this
+    # Secret; no key material is committed to Git.
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - kind: Gateway
+                name: shared-gateway
+                namespace: gateway-infra
+                sectionName: http
