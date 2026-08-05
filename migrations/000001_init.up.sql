@@ -1,4 +1,6 @@
-BEGIN;
+-- No BEGIN/COMMIT here: the migration runner (internal/migrate) and psql -1
+-- both wrap each file in a single transaction, so the DDL and its version
+-- record commit atomically.
 
 CREATE TABLE accounts (
     id            text        NOT NULL,
@@ -30,5 +32,3 @@ CREATE TABLE orders (
     CONSTRAINT uq_orders_account_idempotency_key
         UNIQUE (account_id, idempotency_key)
 );
-
-COMMIT;

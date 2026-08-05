@@ -38,6 +38,20 @@ const opTimeout = 30 * time.Second
 // Open returns a pool bound to a fresh, fully migrated database.
 func Open(t *testing.T) *sql.DB {
 	t.Helper()
+	db, _ := open(t, true)
+	return db
+}
+
+// OpenEmpty returns a pool bound to a fresh database with NO migrations
+// applied, plus its DSN — for tests that exercise the migration runner
+// itself.
+func OpenEmpty(t *testing.T) (*sql.DB, string) {
+	t.Helper()
+	return open(t, false)
+}
+
+func open(t *testing.T, migrated bool) (*sql.DB, string) {
+	t.Helper()
 
 	adminDSN := os.Getenv(EnvDatabaseURL)
 	if adminDSN == "" {
@@ -74,7 +88,9 @@ func Open(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("derive test DSN: %v", err)
 	}
-	applyMigrations(t, dsn)
+	if migrated {
+		applyMigrations(t, dsn)
+	}
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -84,7 +100,7 @@ func Open(t *testing.T) *sql.DB {
 	if err := db.PingContext(ctx); err != nil {
 		t.Fatalf("ping test database: %v", err)
 	}
-	return db
+	return db, dsn
 }
 
 // CreateAccount inserts an account row for tests.
@@ -161,7 +177,9 @@ func applyMigrations(t *testing.T, dsn string) {
 
 	for _, file := range files {
 		ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
-		cmd := exec.CommandContext(ctx, "psql", dsn, "-q", "-v", "ON_ERROR_STOP=1", "-f", file)
+		// -1 wraps the whole file in one transaction; the files carry no
+		// BEGIN/COMMIT of their own.
+		cmd := exec.CommandContext(ctx, "psql", dsn, "-q", "-1", "-v", "ON_ERROR_STOP=1", "-f", file)
 		out, err := cmd.CombinedOutput()
 		cancel()
 		if err != nil {

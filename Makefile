@@ -55,20 +55,22 @@ docker-build:
 	docker build --tag $(IMAGE) .
 
 ## migrate-up/migrate-down: apply migrations with psql, in filename order.
+## -1 wraps each file in a single transaction (files carry no BEGIN/COMMIT).
 ## Fresh-database workflow: files are not idempotent by design; use db-reset
-## to rebuild a dev database from scratch.
+## to rebuild a dev database from scratch. Deployments run migrations via
+## the Helm pre-install/pre-upgrade Job (`order-engine migrate`) instead.
 migrate-up:
 	set -euo pipefail; \
 	for f in migrations/*.up.sql; do \
 		echo "applying $$f"; \
-		psql "$(DATABASE_URL)" -q -v ON_ERROR_STOP=1 -f "$$f"; \
+		psql "$(DATABASE_URL)" -q -1 -v ON_ERROR_STOP=1 -f "$$f"; \
 	done
 
 migrate-down:
 	set -euo pipefail; \
 	for f in $$(ls -r migrations/*.down.sql); do \
 		echo "applying $$f"; \
-		psql "$(DATABASE_URL)" -q -v ON_ERROR_STOP=1 -f "$$f"; \
+		psql "$(DATABASE_URL)" -q -1 -v ON_ERROR_STOP=1 -f "$$f"; \
 	done
 
 db-seed:

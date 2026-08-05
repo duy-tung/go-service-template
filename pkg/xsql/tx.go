@@ -54,8 +54,13 @@ func ExecInTx(ctx context.Context, db *sql.DB, fn func(context.Context) error) e
 	completed := false
 	defer func() {
 		if !completed {
-			// fn panicked: release the transaction, then let the panic
-			// continue unwinding unchanged.
+			// fn escaped without completing: release the transaction, then
+			// let the unwinding continue unchanged. The completed-flag form
+			// is deliberately stronger than recover()+panic(p): it never
+			// touches the panic (value and stack stay pristine), and it also
+			// rolls back on runtime.Goexit — e.g. t.Fatal inside a test
+			// callback — where recover() returns nil and would leak the
+			// transaction.
 			_ = tx.Rollback()
 		}
 	}()

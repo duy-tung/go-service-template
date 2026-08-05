@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"runtime"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -133,6 +134,28 @@ func TestExecInTxRollsBackAndRepanics(t *testing.T) {
 	}()
 	_ = ExecInTx(context.Background(), db, func(context.Context) error { panic("boom") })
 	t.Fatal("ExecInTx must re-panic")
+}
+
+// TestExecInTxRollsBackOnGoexit pins the property that makes the
+// completed-flag defer stronger than a recover()-based one: when fn exits
+// via runtime.Goexit (t.Fatal in a test callback, for example), recover()
+// returns nil, but the transaction must still be released.
+func TestExecInTxRollsBackOnGoexit(t *testing.T) {
+	db, mock := newMockDB(t)
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = ExecInTx(context.Background(), db, func(context.Context) error {
+			runtime.Goexit()
+			return nil
+		})
+		t.Error("unreachable: Goexit must terminate the goroutine")
+	}()
+	<-done
+	expectationsMet(t, mock)
 }
 
 func TestExecInTxJoinsExistingSamePoolTransaction(t *testing.T) {

@@ -56,6 +56,13 @@ database:
   existingSecret: order-engine-db
   secretKey: database-url
 
+migrations:
+  # Run `order-engine migrate` as a pre-install/pre-upgrade hook Job.
+  # Disable when migrations are applied by an external pipeline instead.
+  hookEnabled: true
+  backoffLimit: 2
+  activeDeadlineSeconds: 300
+
 auth:
   # Optional existing Secret carrying the bearer token for the built-in
   # static validator (dev/test only — see README trust model). When empty

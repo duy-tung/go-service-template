@@ -24,6 +24,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	orderengine "github.com/acme/order-engine"
+	"github.com/acme/order-engine/internal/migrate"
 	"github.com/acme/order-engine/internal/repository/postgres"
 	connecttransport "github.com/acme/order-engine/internal/transport/connect"
 	"github.com/acme/order-engine/internal/usecase"
@@ -55,7 +57,9 @@ func loadConfig() (config, error) {
 		tracingEnabled:  envString("ORDER_ENGINE_TRACING_ENABLED", "true") == "true",
 		shutdownTimeout: 20 * time.Second,
 		dbMaxOpenConns:  10,
-		dbMaxIdleConns:  5,
+		// Idle equals open so steady traffic reuses warm connections instead
+		// of churning through fresh ones.
+		dbMaxIdleConns:  10,
 		dbConnMaxLife:   30 * time.Minute,
 		dbConnMaxIdle:   5 * time.Minute,
 		readinessPeriod: 3 * time.Second,
@@ -89,10 +93,41 @@ func loadConfig() (config, error) {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "migrate":
+			// Explicit one-shot mode for the pre-install/pre-upgrade Job.
+			// Serving mode below never touches migrations: N replicas
+			// starting simultaneously must not race on DDL.
+			if err := runMigrate(); err != nil {
+				slog.Error("migration failed", "error", err)
+				os.Exit(1)
+			}
+			return
+		default:
+			slog.Error("unknown command; supported: migrate", "command", os.Args[1])
+			os.Exit(2)
+		}
+	}
 	if err := run(); err != nil {
 		slog.Error("order-engine exited", "error", err)
 		os.Exit(1)
 	}
+}
+
+func runMigrate() error {
+	dsn := os.Getenv("ORDER_ENGINE_DATABASE_URL")
+	if dsn == "" {
+		return errors.New("ORDER_ENGINE_DATABASE_URL is required")
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	return migrate.Run(ctx, logger, dsn, orderengine.MigrationsFS)
 }
 
 func run() error {

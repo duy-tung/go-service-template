@@ -85,9 +85,20 @@ PostgreSQL initializes itself once from `migrations/000001_init.up.sql` and
 
 ## Migrations
 
-There is no migration framework and **the app never migrates itself at
-startup**. Migrations are plain PostgreSQL SQL applied with `psql` in
-filename order:
+There is no migration framework and **serving Pods never migrate at
+startup** — five replicas racing on `CREATE TABLE` is exactly the failure
+mode this design avoids. There are two controlled paths:
+
+- **Deployment (the default):** the Helm chart runs `order-engine migrate`
+  as a `pre-install,pre-upgrade` hook Job (`migrations.hookEnabled`), so
+  exactly one runner executes per rollout, before any Pod restarts. The
+  migrations are embedded in the binary (`migrations/` stays the single
+  source of truth), and the runner takes a PostgreSQL **advisory lock**,
+  tracks applied files in `schema_migrations`, and commits each migration
+  together with its version record in one transaction — concurrent or
+  repeated invocations are safe no-ops.
+- **Local development:** plain `psql` in filename order, each file wrapped
+  in one transaction by `psql -1`:
 
 ```bash
 make migrate-up            # apply all *.up.sql
@@ -96,9 +107,9 @@ make db-seed               # deterministic dev seed (re-runnable)
 make db-reset              # down + up + seed
 ```
 
-Files are intentionally **not** idempotent (`CREATE TABLE IF NOT EXISTS`
-masks drift); local development rebuilds from scratch, production applies
-migrations through its own controlled tooling before rolling the app. The
+Migration files carry no `BEGIN/COMMIT` (the runner or `psql -1` owns the
+transaction) and are intentionally **not** idempotent (`CREATE TABLE IF NOT
+EXISTS` masks drift); the tracked runner is what makes re-runs no-ops. The
 constraint name `uq_orders_account_idempotency_key` is load-bearing: the
 repository matches it when translating unique violations into idempotency
 conflicts, and the integration suite fails if migration and code drift.
