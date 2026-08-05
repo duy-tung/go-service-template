@@ -1,0 +1,17 @@
+# Optional YAML configuration for order-engine.
+# Activate with: ORDER_ENGINE_CONFIG_FILE=/path/to/config.yaml
+#
+# Precedence: built-in defaults < this file < environment variables.
+# Every key equals its environment variable name minus the ORDER_ENGINE_
+# prefix, lowercased (ORDER_ENGINE_DB_MAX_OPEN_CONNS -> db_max_open_conns).
+# Keep secrets (database_url, auth_token) in the environment/Secret, not here.
+
+listen_addr: 0.0.0.0:50051
+tracing_enabled: true
+shutdown_timeout: 20s
+readiness_period: 3s
+
+db_max_open_conns: 10
+db_max_idle_conns: 10
+db_conn_max_lifetime: 30m
+db_conn_max_idle_time: 5m

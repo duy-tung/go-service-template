@@ -146,7 +146,22 @@ the integration suite pins this behavior. Transport-level failures
 the case that matters for lost responses; application callers should still
 retry `UNAVAILABLE` manually with the same idempotency key.
 
-## Server configuration (environment)
+## Server configuration
+
+Configuration is layered with [koanf](https://github.com/knadh/koanf)
+(the one dependency admitted beyond the original allowlist, for config
+only). Precedence, lowest to highest:
+
+1. built-in defaults;
+2. an optional YAML file named by `ORDER_ENGINE_CONFIG_FILE`
+   (see `config.example.yaml` — a configured-but-unreadable file fails
+   loudly);
+3. environment variables.
+
+Every YAML key equals its environment name minus the `ORDER_ENGINE_`
+prefix, lowercased. Invalid values are reported **all at once**, not one
+per restart. Keep secrets (DSN, tokens) in the environment/Secret, not in
+the file.
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -156,7 +171,8 @@ retry `UNAVAILABLE` manually with the same idempotency key.
 | `ORDER_ENGINE_AUTH_ACCOUNT_ID` | `acct-demo` | account the dev token maps to |
 | `ORDER_ENGINE_TRACING_ENABLED` | `true` | OTLP/gRPC exporter, endpoint via standard `OTEL_EXPORTER_OTLP_*` |
 | `ORDER_ENGINE_SHUTDOWN_TIMEOUT` | `20s` | drain budget on SIGTERM |
-| `ORDER_ENGINE_DB_MAX_OPEN_CONNS` etc. | `10/5/30m/5m` | pool sizing |
+| `ORDER_ENGINE_DB_MAX_OPEN_CONNS` etc. | `10/10/30m/5m` | pool sizing |
+| `ORDER_ENGINE_CONFIG_FILE` | — | optional YAML layer between defaults and env |
 
 Health: gRPC health service names `liveness` (process up, no DB dependency)
 and `readiness` (starts NOT_SERVING; SERVING only after `db.PingContext`

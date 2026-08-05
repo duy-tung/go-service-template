@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -33,64 +32,6 @@ import (
 )
 
 const serviceName = "order-engine"
-
-type config struct {
-	listenAddr      string
-	databaseURL     string
-	authToken       string
-	authAccountID   string
-	tracingEnabled  bool
-	shutdownTimeout time.Duration
-	dbMaxOpenConns  int
-	dbMaxIdleConns  int
-	dbConnMaxLife   time.Duration
-	dbConnMaxIdle   time.Duration
-	readinessPeriod time.Duration
-}
-
-func loadConfig() (config, error) {
-	cfg := config{
-		listenAddr:      envString("ORDER_ENGINE_LISTEN_ADDR", "0.0.0.0:50051"),
-		databaseURL:     os.Getenv("ORDER_ENGINE_DATABASE_URL"),
-		authToken:       envString("ORDER_ENGINE_AUTH_TOKEN", "token-123"),
-		authAccountID:   envString("ORDER_ENGINE_AUTH_ACCOUNT_ID", "acct-demo"),
-		tracingEnabled:  envString("ORDER_ENGINE_TRACING_ENABLED", "true") == "true",
-		shutdownTimeout: 20 * time.Second,
-		dbMaxOpenConns:  10,
-		// Idle equals open so steady traffic reuses warm connections instead
-		// of churning through fresh ones.
-		dbMaxIdleConns:  10,
-		dbConnMaxLife:   30 * time.Minute,
-		dbConnMaxIdle:   5 * time.Minute,
-		readinessPeriod: 3 * time.Second,
-	}
-	if cfg.databaseURL == "" {
-		return config{}, errors.New("ORDER_ENGINE_DATABASE_URL is required")
-	}
-	if cfg.authToken == "" {
-		return config{}, errors.New("ORDER_ENGINE_AUTH_TOKEN must not be empty")
-	}
-	var err error
-	if cfg.shutdownTimeout, err = envDuration("ORDER_ENGINE_SHUTDOWN_TIMEOUT", cfg.shutdownTimeout); err != nil {
-		return config{}, err
-	}
-	if cfg.dbMaxOpenConns, err = envInt("ORDER_ENGINE_DB_MAX_OPEN_CONNS", cfg.dbMaxOpenConns); err != nil {
-		return config{}, err
-	}
-	if cfg.dbMaxIdleConns, err = envInt("ORDER_ENGINE_DB_MAX_IDLE_CONNS", cfg.dbMaxIdleConns); err != nil {
-		return config{}, err
-	}
-	if cfg.dbConnMaxLife, err = envDuration("ORDER_ENGINE_DB_CONN_MAX_LIFETIME", cfg.dbConnMaxLife); err != nil {
-		return config{}, err
-	}
-	if cfg.dbConnMaxIdle, err = envDuration("ORDER_ENGINE_DB_CONN_MAX_IDLE_TIME", cfg.dbConnMaxIdle); err != nil {
-		return config{}, err
-	}
-	if cfg.dbMaxOpenConns <= 0 || cfg.shutdownTimeout <= 0 {
-		return config{}, errors.New("connection and timeout settings must be positive")
-	}
-	return cfg, nil
-}
 
 func main() {
 	if len(os.Args) > 1 {
@@ -148,15 +89,15 @@ func run() error {
 	defer stop()
 
 	// Database pool. The DSN is a secret and is never logged.
-	db, err := sql.Open("pgx", cfg.databaseURL)
+	db, err := sql.Open("pgx", cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
-	db.SetMaxOpenConns(cfg.dbMaxOpenConns)
-	db.SetMaxIdleConns(cfg.dbMaxIdleConns)
-	db.SetConnMaxLifetime(cfg.dbConnMaxLife)
-	db.SetConnMaxIdleTime(cfg.dbConnMaxIdle)
+	db.SetMaxOpenConns(cfg.DBMaxOpenConns)
+	db.SetMaxIdleConns(cfg.DBMaxIdleConns)
+	db.SetConnMaxLifetime(cfg.DBConnMaxLife)
+	db.SetConnMaxIdleTime(cfg.DBConnMaxIdle)
 
 	pingCtx, cancelPing := context.WithTimeout(ctx, 5*time.Second)
 	if err := db.PingContext(pingCtx); err != nil {
@@ -167,7 +108,7 @@ func run() error {
 	}
 	cancelPing()
 
-	tracerProvider, err := newTracerProvider(ctx, cfg.tracingEnabled)
+	tracerProvider, err := newTracerProvider(ctx, cfg.TracingEnabled)
 	if err != nil {
 		return fmt.Errorf("tracer provider: %w", err)
 	}
@@ -199,8 +140,8 @@ func run() error {
 		// StaticTokenValidator is a development/test credential source; a
 		// real deployment injects a production TokenValidator here.
 		Validator: connecttransport.StaticTokenValidator{
-			Token:     cfg.authToken,
-			AccountID: cfg.authAccountID,
+			Token:     cfg.AuthToken,
+			AccountID: cfg.AuthAccountID,
 		},
 		Logger: logger,
 		Health: health,
@@ -215,7 +156,7 @@ func run() error {
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
 	server := &http.Server{
-		Addr:              cfg.listenAddr,
+		Addr:              cfg.ListenAddr,
 		Handler:           mux,
 		Protocols:         protocols,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -227,11 +168,11 @@ func run() error {
 		// client deadlines instead.
 	}
 
-	go watchReadiness(ctx, logger, db, health, cfg.readinessPeriod)
+	go watchReadiness(ctx, logger, db, health, cfg.ReadinessPeriod)
 
 	serverFailed := make(chan error, 1)
 	go func() {
-		logger.InfoContext(ctx, "listening", "addr", cfg.listenAddr)
+		logger.InfoContext(ctx, "listening", "addr", cfg.ListenAddr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverFailed <- err
 		}
@@ -252,7 +193,7 @@ func run() error {
 	logger.Info("shutting down")
 	health.SetStatus(connecttransport.HealthServiceReadiness, grpchealth.StatusNotServing)
 
-	drainCtx, cancelDrain := context.WithTimeout(context.Background(), cfg.shutdownTimeout)
+	drainCtx, cancelDrain := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancelDrain()
 	if err := server.Shutdown(drainCtx); err != nil {
 		logger.Error("server drain incomplete", "error", err)
@@ -317,35 +258,4 @@ func watchReadiness(ctx context.Context, logger *slog.Logger, db *sql.DB, health
 		case <-ticker.C:
 		}
 	}
-}
-
-func envString(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func envDuration(key string, fallback time.Duration) (time.Duration, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return fallback, nil
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", key, err)
-	}
-	return d, nil
-}
-
-func envInt(key string, fallback int) (int, error) {
-	v := os.Getenv(key)
-	if v == "" {
-		return fallback, nil
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", key, err)
-	}
-	return n, nil
 }
