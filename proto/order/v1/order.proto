@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package order.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/acme/order-engine/gen/order/v1;orderv1";
+
+// OrderService places orders against a prepaid account balance.
+service OrderService {
+  // CreateOrder places an order and deducts its amount from the caller's
+  // account balance. The call is idempotent per (account, idempotency_key):
+  // retrying with an identical payload returns the original order without
+  // charging again, while reusing the key with a different payload fails.
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse) {}
+}
+
+message CreateOrderRequest {
+  // Client-generated key that makes the request safe to retry.
+  // The account identity is taken from authentication, never from the body.
+  string idempotency_key = 1;
+
+  // Order amount in minor currency units (e.g. cents). Must be positive.
+  int64 amount_minor = 2;
+
+  // ISO 4217 currency code, e.g. "USD".
+  string currency = 3;
+}
+
+message CreateOrderResponse {
+  Order order = 1;
+}
+
+message Order {
+  string id = 1;
+  string account_id = 2;
+  string idempotency_key = 3;
+  int64 amount_minor = 4;
+  string currency = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
