@@ -77,9 +77,13 @@ migrations:
 auth:
   # Optional existing Secret carrying the bearer token for the built-in
   # static validator (dev/test only — see README trust model). When empty
-  # the application default applies.
+  # the application default applies — and the server refuses to start on
+  # the built-in development token unless allowDevToken is set.
   existingSecret: ""
   secretKey: token
+  # Explicit opt-in to serve with the published development token. Never
+  # enable this on an internet-reachable deployment.
+  allowDevToken: false
 
 otel:
   tracingEnabled: true

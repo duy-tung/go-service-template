@@ -8,6 +8,9 @@
 
 listen_addr: 0.0.0.0:50051
 tracing_enabled: true
+# Explicit opt-in to serve with the built-in development token (token-123).
+# Leave false everywhere except throwaway local environments.
+# allow_dev_auth: false
 shutdown_timeout: 20s
 readiness_period: 3s
 

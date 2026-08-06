@@ -169,6 +169,7 @@ the file.
 | `ORDER_ENGINE_DATABASE_URL` | — (required) | never logged |
 | `ORDER_ENGINE_AUTH_TOKEN` | `token-123` | dev/test static validator only |
 | `ORDER_ENGINE_AUTH_ACCOUNT_ID` | `acct-demo` | account the dev token maps to |
+| `ORDER_ENGINE_ALLOW_DEV_AUTH` | `false` | fail-closed guardrail: startup refuses the built-in `token-123` unless this is `true` (compose sets it for local dev) |
 | `ORDER_ENGINE_TRACING_ENABLED` | `true` | OTLP/gRPC exporter, endpoint via standard `OTEL_EXPORTER_OTLP_*` |
 | `ORDER_ENGINE_SHUTDOWN_TIMEOUT` | `20s` | drain budget on SIGTERM |
 | `ORDER_ENGINE_DB_MAX_OPEN_CONNS` etc. | `10/10/30m/5m` | pool sizing |
