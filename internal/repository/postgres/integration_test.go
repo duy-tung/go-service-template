@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,6 +187,39 @@ func TestWithinTransactionAtomicity(t *testing.T) {
 	}
 	if _, err := orders.FindByIdempotencyKey(ctx, "acct-1", "key-rollback"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("rolled-back order lookup = %v, want ErrNotFound", err)
+	}
+}
+
+// TestWithinTransactionCanceledMidFlight reproduces a client disconnect: the
+// request context dies while the transaction is open, database/sql rolls the
+// transaction back automatically, and the surfaced error must classify as
+// context.Canceled — not as a rollback failure — so cancellation alerting
+// stays meaningful.
+func TestWithinTransactionCanceledMidFlight(t *testing.T) {
+	t.Parallel()
+	db, orders, _, transactor := newRepos(t)
+	testpg.CreateAccount(t, db, "acct-1", "USD", 1000)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	err := transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := orders.Insert(txCtx, sampleOrder("order-cancel", "acct-1", "key-cancel")); err != nil {
+			return err
+		}
+		cancel() // client disconnects mid-transaction
+		time.Sleep(50 * time.Millisecond) // let database/sql's auto-rollback run
+		if _, err := orders.FindByIdempotencyKey(txCtx, "acct-1", "key-cancel"); err != nil {
+			return err
+		}
+		return errors.New("unreachable: statements on a canceled context must fail")
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WithinTransaction error = %v, want unwrappable to context.Canceled", err)
+	}
+	if strings.Contains(err.Error(), "rollback failed") {
+		t.Errorf("error %q must not report the benign post-cancel ErrTxDone as a rollback failure", err)
+	}
+	if _, err := orders.FindByIdempotencyKey(context.Background(), "acct-1", "key-cancel"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("canceled transaction must be rolled back, lookup = %v, want ErrNotFound", err)
 	}
 }
 

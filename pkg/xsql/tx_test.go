@@ -103,6 +103,27 @@ func TestExecInTxReturnsCommitError(t *testing.T) {
 	expectationsMet(t, mock)
 }
 
+// TestExecInTxTreatsErrTxDoneAsCompletedRollback pins the client-disconnect
+// path: when the BeginTx context is canceled, database/sql rolls the
+// transaction back on its own and the explicit Rollback returns ErrTxDone.
+// That is a completed rollback — the caller must receive only the original
+// error, not a "rollback failed" wrapper.
+func TestExecInTxTreatsErrTxDoneAsCompletedRollback(t *testing.T) {
+	db, mock := newMockDB(t)
+	original := errors.New("statement after cancel: context canceled")
+	mock.ExpectBegin()
+	mock.ExpectRollback().WillReturnError(sql.ErrTxDone)
+
+	err := ExecInTx(context.Background(), db, func(context.Context) error { return original })
+	if !errors.Is(err, original) {
+		t.Fatalf("ExecInTx error = %v, want the original error", err)
+	}
+	if errors.Is(err, sql.ErrTxDone) {
+		t.Errorf("ExecInTx error = %v, must not wrap the benign ErrTxDone", err)
+	}
+	expectationsMet(t, mock)
+}
+
 func TestExecInTxKeepsOriginalAndRollbackErrors(t *testing.T) {
 	db, mock := newMockDB(t)
 	rollbackErr := errors.New("rollback exploded")
