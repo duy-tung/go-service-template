@@ -205,7 +205,7 @@ func TestWithinTransactionCanceledMidFlight(t *testing.T) {
 		if err := orders.Insert(txCtx, sampleOrder("order-cancel", "acct-1", "key-cancel")); err != nil {
 			return err
 		}
-		cancel() // client disconnects mid-transaction
+		cancel()                          // client disconnects mid-transaction
 		time.Sleep(50 * time.Millisecond) // let database/sql's auto-rollback run
 		if _, err := orders.FindByIdempotencyKey(txCtx, "acct-1", "key-cancel"); err != nil {
 			return err
