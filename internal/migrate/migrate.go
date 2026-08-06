@@ -41,23 +41,30 @@ func Run(ctx context.Context, logger *slog.Logger, dsn string, migrations fs.FS)
 	if err != nil {
 		return err
 	}
-	// The simple query protocol lets one Exec run a multi-statement script;
-	// a single-connection pool keeps every statement — most importantly the
-	// session-scoped advisory lock — on one session. Closing the pool ends
-	// the session, which releases the lock on every exit path.
+	// The simple query protocol lets one Exec run a multi-statement script.
 	db, err := sql.Open("pgx", simpleDSN)
 	if err != nil {
 		return fmt.Errorf("migrate: open database: %w", err)
 	}
 	defer db.Close()
-	db.SetMaxOpenConns(1)
 
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("SELECT pg_advisory_lock(%d)", advisoryLockKey)); err != nil {
+	// Pin one session for the whole run: pg_advisory_lock is session-scoped,
+	// and *sql.DB would transparently retry a dead connection on a NEW
+	// session that no longer holds the lock. With *sql.Conn a lost session
+	// fails loudly instead. Closing conn (or db) ends the session, which
+	// releases the lock on every exit path.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("migrate: acquire connection: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("SELECT pg_advisory_lock(%d)", advisoryLockKey)); err != nil {
 		return fmt.Errorf("migrate: acquire advisory lock: %w", err)
 	}
 	logger.InfoContext(ctx, "migration lock acquired")
 
-	if _, err := db.ExecContext(ctx,
+	if _, err := conn.ExecContext(ctx,
 		`CREATE TABLE IF NOT EXISTS schema_migrations (
 			version    text        NOT NULL,
 			applied_at timestamptz NOT NULL DEFAULT now(),
@@ -82,7 +89,7 @@ func Run(ctx context.Context, logger *slog.Logger, dsn string, migrations fs.FS)
 		}
 
 		var applied bool
-		if err := db.QueryRowContext(ctx,
+		if err := conn.QueryRowContext(ctx,
 			`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, version,
 		).Scan(&applied); err != nil {
 			return fmt.Errorf("migrate: check %s: %w", version, err)
@@ -101,7 +108,7 @@ func Run(ctx context.Context, logger *slog.Logger, dsn string, migrations fs.FS)
 		// atomically. versionPattern makes the inlined literal safe.
 		script := fmt.Sprintf("BEGIN;\n%s\nINSERT INTO schema_migrations (version) VALUES ('%s');\nCOMMIT;",
 			content, version)
-		if _, err := db.ExecContext(ctx, script); err != nil {
+		if _, err := conn.ExecContext(ctx, script); err != nil {
 			return fmt.Errorf("migrate: apply %s: %w", version, err)
 		}
 		logger.InfoContext(ctx, "migration applied", "version", version)
