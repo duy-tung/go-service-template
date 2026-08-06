@@ -77,6 +77,7 @@ func TestLoadConfigEnvOverridesUseDocumentedNames(t *testing.T) {
 	t.Setenv("ORDER_ENGINE_AUTH_TOKEN", "other-token")
 	t.Setenv("ORDER_ENGINE_AUTH_ACCOUNT_ID", "acct-x")
 	t.Setenv("ORDER_ENGINE_TRACING_ENABLED", "0") // ParseBool semantics, not =="true"
+	t.Setenv("ORDER_ENGINE_REQUEST_TIMEOUT", "12s")
 	t.Setenv("ORDER_ENGINE_SHUTDOWN_TIMEOUT", "45s")
 	t.Setenv("ORDER_ENGINE_DB_MAX_OPEN_CONNS", "33")
 	t.Setenv("ORDER_ENGINE_DB_MAX_IDLE_CONNS", "22")
@@ -93,7 +94,8 @@ func TestLoadConfigEnvOverridesUseDocumentedNames(t *testing.T) {
 	if cfg.TracingEnabled {
 		t.Error("TRACING_ENABLED=0 must disable tracing (strconv-style bool parsing)")
 	}
-	if cfg.ShutdownTimeout != 45*time.Second || cfg.DBConnMaxLife != 7*time.Minute || cfg.DBConnMaxIdle != 90*time.Second {
+	if cfg.RequestTimeout != 12*time.Second || cfg.ShutdownTimeout != 45*time.Second ||
+		cfg.DBConnMaxLife != 7*time.Minute || cfg.DBConnMaxIdle != 90*time.Second {
 		t.Errorf("duration overrides not applied: %+v", cfg)
 	}
 	if cfg.DBMaxOpenConns != 33 || cfg.DBMaxIdleConns != 22 {

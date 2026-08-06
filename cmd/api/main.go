@@ -143,8 +143,9 @@ func run() error {
 			Token:     cfg.AuthToken,
 			AccountID: cfg.AuthAccountID,
 		},
-		Logger: logger,
-		Health: health,
+		Logger:         logger,
+		Health:         health,
+		RequestTimeout: cfg.RequestTimeout,
 	})
 	if err != nil {
 		return err
@@ -164,8 +165,9 @@ func run() error {
 		MaxHeaderBytes:    1 << 20,
 		// Design Decision: ReadTimeout/WriteTimeout stay unset. They bound
 		// the whole request lifetime and would sever long-lived streaming
-		// RPCs; per-message bounds come from Read/SendMaxBytes and
-		// client deadlines instead.
+		// RPCs; per-message bounds come from Read/SendMaxBytes, and unary
+		// handler time is capped by the request_timeout interceptor. Time
+		// spent reading a slow request body is the edge proxy's to bound.
 	}
 
 	go watchReadiness(ctx, logger, db, health, cfg.ReadinessPeriod)
