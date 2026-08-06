@@ -18,6 +18,10 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.networkPolicy.gatewayNamespace }}
+          {{- with .Values.networkPolicy.gatewayPodSelector }}
+          podSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         {{- with .Values.networkPolicy.extraIngressFrom }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

@@ -177,9 +177,13 @@ the file.
 Health: gRPC health service names `liveness` (process up, no DB dependency)
 and `readiness` (starts NOT_SERVING; SERVING only after `db.PingContext`
 succeeds; NOT_SERVING again the moment SIGTERM arrives). Shutdown order:
-readiness off → drain server → flush OTel → close DB. There is no shell in
-the distroless image, so no `preStop` hooks — the runtime relies on ordered
-in-process shutdown.
+readiness off → drain server → flush OTel → close DB. The chart adds a
+shell-free native `preStop` sleep (Kubernetes >= 1.30 SleepAction) so the
+pod keeps accepting traffic while EndpointSlice removal propagates; the
+distroless image needs no shell for any of this. The chart also pins
+`GOMEMLIMIT` just below the memory limit so heap pressure triggers GC
+instead of the OOM killer, and sets no CPU limit — Go 1.25+ sizes
+GOMAXPROCS from the cgroup quota on its own.
 
 ## Deployment
 

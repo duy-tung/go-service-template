@@ -18,14 +18,25 @@ deployment:
   progressDeadlineSeconds: 300
   terminationGracePeriodSeconds: 30
   revisionHistoryLimit: 5
+  # Native preStop sleep (Kubernetes >= 1.30, no shell needed): keeps the pod
+  # accepting traffic while EndpointSlice removal propagates, so rolling
+  # updates never surface connection-refused blips. Set 0 to disable.
+  preStopSleepSeconds: 5
 
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: "1"
+    cpu: 250m
     memory: 256Mi
+  limits:
+    # Memory request == limit: the pod never gets OOM-killed for a
+    # neighbour's sake. No CPU limit on purpose: Go 1.25+ sizes GOMAXPROCS
+    # from the cgroup quota itself, and uncapped CPU avoids CFS-throttling
+    # tail latency.
+    memory: 256Mi
+
+# GC soft limit passed to the runtime; keep ~90% of resources.limits.memory
+# so heap pressure triggers GC instead of the kernel OOM killer.
+gomemlimit: 230MiB
 
 autoscaling:
   enabled: false
@@ -90,6 +101,10 @@ networkPolicy:
   enabled: true
   # Namespace that runs the Gateway data plane (ingress source).
   gatewayNamespace: gateway-infra
+  # Optional pod selector narrowing ingress from "everything in the Gateway
+  # namespace" down to the data-plane pods, e.g.
+  #   matchLabels: { app.kubernetes.io/component: proxy }
+  gatewayPodSelector: {}
   # Extra NetworkPolicyPeer entries allowed to reach :50051 (in-cluster
   # native gRPC clients using the headless Service).
   extraIngressFrom: []

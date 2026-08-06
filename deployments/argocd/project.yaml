@@ -5,6 +5,10 @@ kind: AppProject
 metadata:
   name: order-engine
   namespace: argocd
+  annotations:
+    # First wave under the root app-of-apps: the project must exist before
+    # the child Applications that reference it.
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   description: order-engine service and its shared platform pieces
   sourceRepos:

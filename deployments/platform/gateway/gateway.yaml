@@ -21,10 +21,12 @@ spec:
         namespaces:
           from: Same
     # TLS terminates here; upstream traffic to Pods is h2c (edge TLS, not
-    # end-to-end TLS).
+    # end-to-end TLS). The hostname pins SNI matching and certificate
+    # selection to exactly the domain the Certificate covers.
     - name: https
       port: 443
       protocol: HTTPS
+      hostname: orders.example.com # replace together with the Certificate dnsNames
       tls:
         mode: Terminate
         certificateRefs:

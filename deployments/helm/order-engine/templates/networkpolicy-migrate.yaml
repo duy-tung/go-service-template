@@ -1,0 +1,39 @@
+{{- if and .Values.networkPolicy.enabled .Values.migrations.hookEnabled }}
+# The migration Job pods deliberately carry different labels than the app
+# (so Services never route to them), which would leave them outside the app
+# NetworkPolicy — i.e. default-allow. This policy closes that gap: no
+# ingress at all, egress only to DNS and PostgreSQL.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "order-engine.fullname" . }}-migrate
+  labels:
+    {{- include "order-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "order-engine.name" . }}-migrate
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  # No ingress rules: nothing may connect to a migration pod.
+  egress:
+    # DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # PostgreSQL.
+    - to:
+        {{- toYaml .Values.networkPolicy.egress.postgres.to | nindent 8 }}
+      ports:
+        - port: {{ .Values.networkPolicy.egress.postgres.port }}
+          protocol: TCP
+{{- end }}

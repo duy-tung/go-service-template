@@ -14,19 +14,28 @@ ENV GOPROXY=${GOPROXY} \
     GOFLAGS=-mod=readonly
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
 
 ARG TARGETOS
 ARG TARGETARCH
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH \
+# Cache mounts keep the module and compiler caches across builds, so a
+# one-line source change recompiles only what changed instead of the whole
+# dependency tree.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/order-engine ./cmd/api
 
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
 
 COPY --from=builder /out/order-engine /usr/local/bin/order-engine
 
-USER nonroot:nonroot
+# Numeric UID:GID (distroless "nonroot") on purpose: kubelet can only verify
+# runAsNonRoot against a numeric image user; a named USER fails admission
+# with CreateContainerConfigError.
+USER 65532:65532
 EXPOSE 50051
 ENTRYPOINT ["/usr/local/bin/order-engine"]

@@ -1,0 +1,36 @@
+# Root app-of-apps: sync waves only order resources INSIDE one parent sync,
+# so this root is what turns the -2/-1/0 annotations on the project and the
+# two child Applications into a real bootstrap order
+# (AppProject → platform → order-engine) instead of a convention.
+#
+# Bootstrap note: this meta-app manages only Argo CD config objects in the
+# argocd namespace and is applied once by the operator; it uses the built-in
+# "default" project because the dedicated "order-engine" AppProject is one of
+# the resources it creates.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: order-engine-root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/acme/order-engine.git # replace with your fork
+    targetRevision: main
+    path: deployments/argocd
+    directory:
+      include: "{project.yaml,platform-application.yaml,order-engine-application.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false # never auto-delete Applications/AppProject
+      selfHeal: true
+      allowEmpty: false
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

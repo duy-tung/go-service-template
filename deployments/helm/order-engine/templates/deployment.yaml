@@ -37,6 +37,10 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.deployment.terminationGracePeriodSeconds }}
       securityContext:
         runAsNonRoot: true
+        # Numeric IDs are required for the kubelet's runAsNonRoot
+        # verification; they match the distroless nonroot user.
+        runAsUser: 65532
+        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       {{- with .Values.topologySpreadConstraints }}
@@ -74,6 +78,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.database.existingSecret }}
                   key: {{ .Values.database.secretKey }}
+            {{- if .Values.gomemlimit }}
+            # GC soft limit: heap pressure triggers GC, not the OOM killer.
+            - name: GOMEMLIMIT
+              value: {{ .Values.gomemlimit | quote }}
+            {{- end }}
             {{- if .Values.auth.existingSecret }}
             - name: ORDER_ENGINE_AUTH_TOKEN
               valueFrom:
@@ -96,6 +105,14 @@ spec:
             capabilities:
               drop:
                 - ALL
+          {{- if gt (int .Values.deployment.preStopSleepSeconds) 0 }}
+          lifecycle:
+            preStop:
+              # Native sleep action (K8s >= 1.30, shell-free): bridges the
+              # gap between SIGTERM and EndpointSlice propagation.
+              sleep:
+                seconds: {{ .Values.deployment.preStopSleepSeconds }}
+          {{- end }}
           # Native gRPC probes (numeric port by design: named ports are not
           # supported for gRPC probes).
           startupProbe:
