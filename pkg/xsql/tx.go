@@ -73,7 +73,11 @@ func ExecInTx(ctx context.Context, db *sql.DB, fn func(context.Context) error) e
 
 	if err := fn(context.WithValue(ctx, txKey{db: db}, tx)); err != nil {
 		completed = true
-		if rbErr := tx.Rollback(); rbErr != nil {
+		// ErrTxDone means database/sql already resolved the transaction —
+		// typically its automatic rollback after the BeginTx context was
+		// canceled (client disconnect, deadline). That is a completed
+		// rollback, not a failed one; only genuine failures escalate.
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
 			// Surface both failures; errors.Is/As keep working for each.
 			return fmt.Errorf("xsql: rollback failed: %w (while handling: %w)", rbErr, err)
 		}

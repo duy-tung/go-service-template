@@ -90,6 +90,12 @@ spec:
                   name: {{ .Values.auth.existingSecret }}
                   key: {{ .Values.auth.secretKey }}
             {{- end }}
+            {{- if .Values.auth.allowDevToken }}
+            # Explicit opt-in: without a real token Secret the application
+            # refuses to serve the built-in development credential.
+            - name: ORDER_ENGINE_ALLOW_DEV_AUTH
+              value: "true"
+            {{- end }}
             - name: ORDER_ENGINE_TRACING_ENABLED
               value: {{ .Values.otel.tracingEnabled | quote }}
             {{- if .Values.otel.exporterEndpoint }}

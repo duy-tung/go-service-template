@@ -1,0 +1,66 @@
+# CI mirrors the local `make test` contract: gofmt + vet + build, then the
+# full suite (integration tests included) with the race detector against a
+# real PostgreSQL 16, with ORDER_ENGINE_TEST_REQUIRE_DB=1 so missing-database
+# skips fail instead of passing silently.
+#
+# Proto lint/generate (`make generate`) is not run here: gen/ is committed
+# and buf's remote plugins would add a network dependency to every build.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # testpg applies migrations through psql, mirroring the documented
+      # production workflow; the runner image ships the client, but install
+      # it if a future image drops it.
+      - name: Ensure psql client
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          fi
+
+      - name: gofmt
+        run: |
+          out="$(gofmt -l cmd internal pkg)"
+          if [ -n "$out" ]; then echo "gofmt needed on:"; echo "$out"; exit 1; fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test (race, integration against PostgreSQL)
+        env:
+          ORDER_ENGINE_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5433/postgres?sslmode=disable
+          ORDER_ENGINE_TEST_REQUIRE_DB: "1"
+        run: go test -race -count=1 ./...

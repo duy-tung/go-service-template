@@ -28,6 +28,9 @@ services:
     environment:
       ORDER_ENGINE_DATABASE_URL: postgres://order_engine:local-dev-password@postgres:5432/order_engine?sslmode=disable
       ORDER_ENGINE_TRACING_ENABLED: "false"
+      # Local development explicitly opts in to the built-in static dev
+      # token; without this the server refuses to start on the default.
+      ORDER_ENGINE_ALLOW_DEV_AUTH: "true"
     depends_on:
       postgres:
         condition: service_healthy

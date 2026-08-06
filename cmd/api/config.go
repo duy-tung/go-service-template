@@ -12,12 +12,19 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/structs"
 	"github.com/knadh/koanf/v2"
+
+	connecttransport "github.com/acme/order-engine/internal/transport/connect"
 )
 
 const (
 	envPrefix     = "ORDER_ENGINE_"
 	envConfigFile = "ORDER_ENGINE_CONFIG_FILE"
 )
+
+// devAuthToken is the well-known development credential baked into this
+// public template. Serving with it requires an explicit opt-in so the
+// least-effort deployment path cannot silently expose a published token.
+const devAuthToken = "token-123"
 
 // config is the full runtime configuration. Sources merge with precedence
 // defaults < YAML file (ORDER_ENGINE_CONFIG_FILE) < environment. The koanf
@@ -28,7 +35,9 @@ type config struct {
 	DatabaseURL     string        `koanf:"database_url"`
 	AuthToken       string        `koanf:"auth_token"`
 	AuthAccountID   string        `koanf:"auth_account_id"`
+	AllowDevAuth    bool          `koanf:"allow_dev_auth"`
 	TracingEnabled  bool          `koanf:"tracing_enabled"`
+	RequestTimeout  time.Duration `koanf:"request_timeout"`
 	ShutdownTimeout time.Duration `koanf:"shutdown_timeout"`
 	DBMaxOpenConns  int           `koanf:"db_max_open_conns"`
 	DBMaxIdleConns  int           `koanf:"db_max_idle_conns"`
@@ -41,9 +50,12 @@ func defaultConfig() config {
 	return config{
 		ListenAddr: "0.0.0.0:50051",
 		// Dev/test static validator credentials; see the README trust model.
-		AuthToken:       "token-123",
+		// AllowDevAuth stays false: booting with this token fails validation
+		// unless ORDER_ENGINE_ALLOW_DEV_AUTH=true is set explicitly.
+		AuthToken:       devAuthToken,
 		AuthAccountID:   "acct-demo",
 		TracingEnabled:  true,
+		RequestTimeout:  connecttransport.DefaultRequestTimeout,
 		ShutdownTimeout: 20 * time.Second,
 		DBMaxOpenConns:  10,
 		// Idle equals open so steady traffic reuses warm connections instead
@@ -101,6 +113,14 @@ func (c config) validate() error {
 	if c.AuthToken == "" {
 		errs = append(errs, errors.New("ORDER_ENGINE_AUTH_TOKEN must not be empty"))
 	}
+	if c.AuthToken == devAuthToken && !c.AllowDevAuth {
+		errs = append(errs, errors.New(
+			"auth_token is the built-in development credential; set ORDER_ENGINE_AUTH_TOKEN "+
+				"to a real secret or opt in explicitly with ORDER_ENGINE_ALLOW_DEV_AUTH=true"))
+	}
+	if c.AuthAccountID == "" {
+		errs = append(errs, errors.New("ORDER_ENGINE_AUTH_ACCOUNT_ID must not be empty"))
+	}
 	if c.ListenAddr == "" {
 		errs = append(errs, errors.New("listen_addr must not be empty"))
 	}
@@ -109,6 +129,9 @@ func (c config) validate() error {
 	}
 	if c.DBMaxIdleConns < 0 {
 		errs = append(errs, fmt.Errorf("db_max_idle_conns must not be negative, got %d", c.DBMaxIdleConns))
+	}
+	if c.RequestTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("request_timeout must be positive, got %s", c.RequestTimeout))
 	}
 	if c.ShutdownTimeout <= 0 {
 		errs = append(errs, fmt.Errorf("shutdown_timeout must be positive, got %s", c.ShutdownTimeout))

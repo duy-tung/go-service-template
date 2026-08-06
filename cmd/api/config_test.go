@@ -8,11 +8,13 @@ import (
 	"time"
 )
 
-// setBaseline provides the one required variable so tests can focus on the
-// knob under test.
+// setBaseline provides the required variables so tests can focus on the
+// knob under test: the DSN plus the explicit opt-in for the built-in dev
+// token that the defaults carry.
 func setBaseline(t *testing.T) {
 	t.Helper()
 	t.Setenv("ORDER_ENGINE_DATABASE_URL", "postgres://app@db:5432/orders?sslmode=disable")
+	t.Setenv("ORDER_ENGINE_ALLOW_DEV_AUTH", "true")
 }
 
 func TestLoadConfigDefaults(t *testing.T) {
@@ -24,8 +26,46 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	want := defaultConfig()
 	want.DatabaseURL = "postgres://app@db:5432/orders?sslmode=disable"
+	want.AllowDevAuth = true
 	if cfg != want {
 		t.Errorf("loadConfig = %+v, want defaults %+v", cfg, want)
+	}
+}
+
+// TestLoadConfigRefusesDevTokenWithoutOptIn pins the fail-closed guardrail:
+// the published development credential must never serve silently.
+func TestLoadConfigRefusesDevTokenWithoutOptIn(t *testing.T) {
+	t.Setenv("ORDER_ENGINE_DATABASE_URL", "postgres://app@db:5432/orders?sslmode=disable")
+
+	_, err := loadConfig()
+	if err == nil {
+		t.Fatal("default dev token without opt-in must fail validation")
+	}
+	if !strings.Contains(err.Error(), "ORDER_ENGINE_ALLOW_DEV_AUTH") {
+		t.Errorf("error %q must point at the ORDER_ENGINE_ALLOW_DEV_AUTH opt-in", err)
+	}
+}
+
+func TestLoadConfigAcceptsRealTokenWithoutOptIn(t *testing.T) {
+	t.Setenv("ORDER_ENGINE_DATABASE_URL", "postgres://app@db:5432/orders?sslmode=disable")
+	t.Setenv("ORDER_ENGINE_AUTH_TOKEN", "a-real-secret")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig with a real token: %v", err)
+	}
+	if cfg.AllowDevAuth {
+		t.Error("AllowDevAuth must stay false unless explicitly set")
+	}
+}
+
+func TestLoadConfigRejectsEmptyAccountID(t *testing.T) {
+	setBaseline(t)
+	t.Setenv("ORDER_ENGINE_AUTH_ACCOUNT_ID", "")
+
+	_, err := loadConfig()
+	if err == nil || !strings.Contains(err.Error(), "ORDER_ENGINE_AUTH_ACCOUNT_ID") {
+		t.Fatalf("empty account id must fail validation, got %v", err)
 	}
 }
 
@@ -37,6 +77,7 @@ func TestLoadConfigEnvOverridesUseDocumentedNames(t *testing.T) {
 	t.Setenv("ORDER_ENGINE_AUTH_TOKEN", "other-token")
 	t.Setenv("ORDER_ENGINE_AUTH_ACCOUNT_ID", "acct-x")
 	t.Setenv("ORDER_ENGINE_TRACING_ENABLED", "0") // ParseBool semantics, not =="true"
+	t.Setenv("ORDER_ENGINE_REQUEST_TIMEOUT", "12s")
 	t.Setenv("ORDER_ENGINE_SHUTDOWN_TIMEOUT", "45s")
 	t.Setenv("ORDER_ENGINE_DB_MAX_OPEN_CONNS", "33")
 	t.Setenv("ORDER_ENGINE_DB_MAX_IDLE_CONNS", "22")
@@ -53,7 +94,8 @@ func TestLoadConfigEnvOverridesUseDocumentedNames(t *testing.T) {
 	if cfg.TracingEnabled {
 		t.Error("TRACING_ENABLED=0 must disable tracing (strconv-style bool parsing)")
 	}
-	if cfg.ShutdownTimeout != 45*time.Second || cfg.DBConnMaxLife != 7*time.Minute || cfg.DBConnMaxIdle != 90*time.Second {
+	if cfg.RequestTimeout != 12*time.Second || cfg.ShutdownTimeout != 45*time.Second ||
+		cfg.DBConnMaxLife != 7*time.Minute || cfg.DBConnMaxIdle != 90*time.Second {
 		t.Errorf("duration overrides not applied: %+v", cfg)
 	}
 	if cfg.DBMaxOpenConns != 33 || cfg.DBMaxIdleConns != 22 {

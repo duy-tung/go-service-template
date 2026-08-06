@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
@@ -102,6 +103,10 @@ type MuxConfig struct {
 	ReadMaxBytes int
 	SendMaxBytes int
 
+	// RequestTimeout bounds each unary RPC (handler + database time);
+	// defaults to DefaultRequestTimeout.
+	RequestTimeout time.Duration
+
 	// ExtraInterceptors are placed outermost, ahead of tracing and auth.
 	// Production wiring leaves this empty; tests use it for fault injection.
 	ExtraInterceptors []connect.Interceptor
@@ -140,10 +145,17 @@ func NewMux(cfg MuxConfig) (*http.ServeMux, error) {
 	if sendMax <= 0 {
 		sendMax = DefaultSendMaxBytes
 	}
+	requestTimeout := cfg.RequestTimeout
+	if requestTimeout <= 0 {
+		requestTimeout = DefaultRequestTimeout
+	}
 
-	interceptors := make([]connect.Interceptor, 0, len(cfg.ExtraInterceptors)+2)
+	// The timeout interceptor sits innermost so the bound covers the handler
+	// and everything below it, while failed auth is never charged against it.
+	interceptors := make([]connect.Interceptor, 0, len(cfg.ExtraInterceptors)+3)
 	interceptors = append(interceptors, cfg.ExtraInterceptors...)
-	interceptors = append(interceptors, tracingInterceptor, authInterceptor)
+	interceptors = append(interceptors, tracingInterceptor, authInterceptor,
+		timeoutInterceptor(requestTimeout))
 
 	mux := http.NewServeMux()
 	path, orderHandler := orderv1connect.NewOrderServiceHandler(handler,
