@@ -45,7 +45,9 @@ func (r *orderRow) toDomain() *domain.Order {
 }
 
 // accountStateRow is the projection used to classify failed deductions.
+// Only the currency is needed: the balance itself never decides the
+// classification (a failed guarded UPDATE with a matching currency is
+// insufficient funds by elimination).
 type accountStateRow struct {
-	Currency     string `db:"currency"`
-	BalanceMinor int64  `db:"balance_minor"`
+	Currency string `db:"currency"`
 }

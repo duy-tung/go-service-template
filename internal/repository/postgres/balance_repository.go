@@ -16,7 +16,7 @@ import (
 const deductQuery = `UPDATE "accounts" SET "balance_minor" = "balance_minor" - $1 ` +
 	`WHERE "id" = $2 AND "currency" = $3 AND "balance_minor" >= $1`
 
-const accountStateQuery = `SELECT "currency", "balance_minor" FROM "accounts" WHERE "id" = $1 LIMIT 1`
+const accountStateQuery = `SELECT "currency" FROM "accounts" WHERE "id" = $1 LIMIT 1`
 
 // BalanceRepository is the PostgreSQL implementation of
 // usecase.BalanceRepository.
