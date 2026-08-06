@@ -91,6 +91,58 @@ func TestConcurrentSameKeyDeductsOnce(t *testing.T) {
 	}
 }
 
+// TestConcurrentSameKeyInsufficientForBoth: the deduct-side variant of the
+// race. The balance covers the amount once but not twice, so the loser's
+// guarded UPDATE re-evaluates against the winner's committed balance and
+// fails with insufficient funds instead of hitting the unique constraint.
+// The recovery re-read must still converge both callers on the winning
+// order: same ID, one order row, one deduction.
+func TestConcurrentSameKeyInsufficientForBoth(t *testing.T) {
+	t.Parallel()
+	var barrier *barrierRepo
+	st := newStack(t, func(real usecase.OrderRepository) usecase.OrderRepository {
+		barrier = &barrierRepo{OrderRepository: real, t: t, barrier: make(chan struct{})}
+		return barrier
+	})
+	testpg.CreateAccount(t, st.db, testAccount, "USD", 600)
+
+	type outcome struct {
+		order *domain.Order
+		err   error
+	}
+	results := make(chan outcome, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			order, err := st.placeOrder.Execute(ctx, testAccount, "tight-balance-race", 500, "USD")
+			results <- outcome{order: order, err: err}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var ids []string
+	for res := range results {
+		if res.err != nil {
+			t.Fatalf("concurrent Execute failed: %v", res.err)
+		}
+		ids = append(ids, res.order.ID)
+	}
+	if len(ids) != 2 || ids[0] != ids[1] {
+		t.Errorf("order IDs = %v, want both callers to receive the same order", ids)
+	}
+	if got := testpg.CountOrders(t, st.db, testAccount); got != 1 {
+		t.Errorf("orders = %d, want 1", got)
+	}
+	if got := testpg.AccountBalance(t, st.db, testAccount); got != 100 {
+		t.Errorf("balance = %d, want 100 (deducted exactly once)", got)
+	}
+}
+
 // TestConcurrentSameKeyDifferentPayload: same race, conflicting payloads.
 // Exactly one request wins; the other must surface ErrIdempotencyConflict,
 // and only the winner's amount is deducted.

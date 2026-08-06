@@ -130,24 +130,32 @@ func (p *PlaceOrder) Execute(ctx context.Context, accountID, idempotencyKey stri
 	if txErr == nil {
 		return placed, nil
 	}
-	if !errors.Is(txErr, domain.ErrIdempotencyConflict) {
+	// Two failure modes can mean "a concurrent request with the same key won
+	// the race and committed": the loser's insert hits the unique constraint
+	// (idempotency conflict), or the loser's deduction re-evaluates against
+	// the winner's committed balance and no longer covers the amount
+	// (insufficient balance). In both cases the losing transaction — including
+	// its deduction — was rolled back, so re-read the winning order on the
+	// plain pool context and return it when this request is a true retry.
+	if !errors.Is(txErr, domain.ErrIdempotencyConflict) &&
+		!errors.Is(txErr, domain.ErrInsufficientBalance) {
 		return nil, txErr
 	}
 
-	// A conflict either means the key was reused with a different payload, or
-	// this request lost an insert race and its whole transaction — including
-	// the balance deduction — was rolled back. The transaction is gone, so
-	// re-read the winning order on the plain pool context and decide.
 	winner, err := p.orders.FindByIdempotencyKey(ctx, accountID, idempotencyKey)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
+			// No winner: the original failure stands (a genuine conflict
+			// whose order vanished, or genuinely insufficient funds).
 			return nil, txErr
 		}
-		return nil, fmt.Errorf("usecase: reload order after idempotency conflict: %w", err)
+		return nil, fmt.Errorf("usecase: reload order after failed placement: %w", err)
 	}
 	if winner.SamePayload(accountID, amountMinor, currency) {
 		return winner, nil
 	}
+	// The key exists with a different payload: that is a key-reuse conflict
+	// regardless of which error the losing transaction surfaced.
 	return nil, fmt.Errorf("%w: key %q was already used with a different payload",
 		domain.ErrIdempotencyConflict, idempotencyKey)
 }

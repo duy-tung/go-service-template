@@ -290,6 +290,78 @@ func TestExecuteReturnsConflictWhenWinnerVanishes(t *testing.T) {
 	}
 }
 
+// TestExecuteRecoversWinnerAfterLostDeductRace covers the sibling of the
+// insert race: the loser's guarded deduction re-evaluates against the
+// winner's committed balance, fails with ErrInsufficientBalance, and the
+// post-rollback re-read must return the winning order instead of surfacing
+// a business failure for an order that was actually placed.
+func TestExecuteRecoversWinnerAfterLostDeductRace(t *testing.T) {
+	winner := &domain.Order{
+		ID: "order-winner", AccountID: "acct-1", IdempotencyKey: "key-1",
+		AmountMinor: 2500, Currency: "USD",
+	}
+	orders := &fakeOrderRepo{
+		find: func(call int, ctx context.Context, _, _ string) (*domain.Order, error) {
+			if call == 1 {
+				return nil, domain.ErrNotFound
+			}
+			return winner, nil
+		},
+	}
+	balances := &fakeBalanceRepo{
+		deduct: func(context.Context, string, int64, string) error {
+			return fmt.Errorf("repo: %w", domain.ErrInsufficientBalance)
+		},
+	}
+	p := newUsecase(t, orders, balances, &fakeTransactor{})
+
+	got, err := p.Execute(context.Background(), "acct-1", "key-1", 2500, "USD")
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got.ID != "order-winner" {
+		t.Errorf("Execute returned %q, want the winning order", got.ID)
+	}
+	if len(orders.findCalls) != 2 {
+		t.Fatalf("find called %d times, want 2 (in-tx lookup + post-rollback re-read)", len(orders.findCalls))
+	}
+	if orders.findCalls[1].inTx {
+		t.Error("post-rollback re-read must run on the pool context, not the dead transaction")
+	}
+	if len(orders.inserted) != 0 {
+		t.Errorf("loser must not insert: %+v", orders.inserted)
+	}
+}
+
+// TestExecuteLostDeductRaceDifferentPayloadConflicts: same deduct-side race,
+// but the committed order carries a different payload — the request reused
+// the key, so the conflict classification wins over insufficient balance.
+func TestExecuteLostDeductRaceDifferentPayloadConflicts(t *testing.T) {
+	winner := &domain.Order{
+		ID: "order-winner", AccountID: "acct-1", IdempotencyKey: "key-1",
+		AmountMinor: 1, Currency: "USD",
+	}
+	orders := &fakeOrderRepo{
+		find: func(call int, ctx context.Context, _, _ string) (*domain.Order, error) {
+			if call == 1 {
+				return nil, domain.ErrNotFound
+			}
+			return winner, nil
+		},
+	}
+	balances := &fakeBalanceRepo{
+		deduct: func(context.Context, string, int64, string) error {
+			return fmt.Errorf("repo: %w", domain.ErrInsufficientBalance)
+		},
+	}
+	p := newUsecase(t, orders, balances, &fakeTransactor{})
+
+	_, err := p.Execute(context.Background(), "acct-1", "key-1", 2500, "USD")
+	if !errors.Is(err, domain.ErrIdempotencyConflict) {
+		t.Fatalf("Execute error = %v, want ErrIdempotencyConflict", err)
+	}
+}
+
 func TestExecutePropagatesDeductFailures(t *testing.T) {
 	for _, sentinel := range []error{domain.ErrInsufficientBalance, domain.ErrNotFound, domain.ErrInvalidArgument} {
 		orders := notFoundRepo()
